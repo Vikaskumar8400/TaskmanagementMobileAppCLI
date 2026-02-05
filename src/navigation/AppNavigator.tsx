@@ -15,6 +15,7 @@ import ProfileScreen from '../screens/ProfileScreen';
 import TaskDetailsScreen from '../screens/TaskDetailsScreen';
 import TimeEntryScreen from '../screens/TimeEntryScreen';
 import LeaveCalendarScreen from '../screens/LeaveCalendarScreen';
+import CreateTaskScreen from '../screens/CreateTaskScreen';
 
 export type RootStackParamList = {
     Splash: undefined;
@@ -24,6 +25,7 @@ export type RootStackParamList = {
     Tasks: undefined; // Added Tasks
     TimeEntry: undefined;
     LeaveCalendar: undefined;
+    CreateTask: undefined;
 };
 
 export type MainTabParamList = {
@@ -95,6 +97,7 @@ const AppNavigator = () => {
                         <Stack.Screen name="Tasks" component={TaskDetailsScreen} />
                         <Stack.Screen name="TimeEntry" component={TimeEntryScreen} />
                         <Stack.Screen name="LeaveCalendar" component={LeaveCalendarScreen} />
+                        <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
                     </>
                 ) : (
                     <>
