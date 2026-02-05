@@ -577,7 +577,245 @@ export async function addEntryComment(
 /**
  * Get task users (duplicate of getTaskAllTaskUser so we don't touch service.ts).
  */
-/** Fallback previous status when reverting Question/Rejected (no TimeHistory). */
+/**
+ * Postpone (move) a time entry to a new date. Creates a new entry with the new date and removes the original.
+ * newDateStr: DD/MM/YYYY
+ */
+export async function postponeEntry(
+  spToken: string,
+  entry: any,
+  newDateStr: string,
+  newMinutes: number,
+  description: string,
+  loginUser: any
+): Promise<void> {
+  const siteUrl = entry.siteUrl;
+  const listId = entry.TimesheetListId;
+  const parentId = entry.ParentID;
+  if (!siteUrl || !listId || parentId == null) throw new Error('Entry missing siteUrl, TimesheetListId, or ParentID');
+
+  const { additionalTimeEntry, type } = await getTimesheetItem(spToken, siteUrl, listId, parentId);
+  const found = findEntry(additionalTimeEntry, entry);
+  if (!found) throw new Error('Entry not found');
+  const { index, val: originalEntry } = found;
+
+  const newHours = newMinutes / 60;
+  const maxId = additionalTimeEntry.length > 0
+    ? Math.max(...additionalTimeEntry.map((e: any) => e?.ID ?? e?.Id ?? 0))
+    : 0;
+
+  let timeHistory: any[] = [];
+  try {
+    timeHistory = originalEntry.TimeHistory ? (typeof originalEntry.TimeHistory === 'string' ? JSON.parse(originalEntry.TimeHistory) : originalEntry.TimeHistory) : [];
+  } catch {
+    timeHistory = [];
+  }
+  const maxHistoryId = timeHistory.length > 0 ? Math.max(...timeHistory.map((h: any) => h.Id || 0)) : 0;
+  timeHistory.push({
+    Id: maxHistoryId + 1,
+    TaskTimeInMin: newMinutes,
+    TaskTime: newHours,
+    Status: 'Draft',
+    date: format(new Date(), 'dd/MM/yyyy HH:mm'),
+    AuthorName: loginUser?.Title || loginUser?.AuthorName || '',
+    AuthorId: loginUser?.AssingedToUserId ?? loginUser?.AuthorId,
+  });
+
+  const newEntry: any = {
+    ...originalEntry,
+    ID: maxId + 1,
+    Id: maxId + 1,
+    TaskDate: newDateStr,
+    TaskTime: parseFloat(newHours.toFixed(2)),
+    TaskTimeInMin: newMinutes,
+    Description: description || originalEntry.Description || '',
+    AuthorName: loginUser?.Title || loginUser?.AuthorName || originalEntry.AuthorName,
+    AuthorId: loginUser?.AssingedToUserId ?? loginUser?.AuthorId ?? originalEntry.AuthorId,
+    AuthorImage: loginUser?.Item_x0020_Cover?.Url || loginUser?.AuthorImage || originalEntry.AuthorImage || '',
+    Status: 'Draft',
+    WorkingDate: newDateStr,
+    TimeHistory: JSON.stringify(timeHistory),
+  };
+
+  const existingWithoutOriginal = additionalTimeEntry.filter((e: any) => {
+    const isMatch =
+      (e?.ID === originalEntry?.ID || e?.Id === originalEntry?.ID || e?.ID === originalEntry?.Id || e?.Id === originalEntry?.Id) &&
+      String(e?.AuthorId) === String(originalEntry?.AuthorId) &&
+      String((e?.TaskDate || '').trim()) === String((originalEntry?.TaskDate || '').trim());
+    return !isMatch;
+  });
+  existingWithoutOriginal.push(newEntry);
+
+  const endpoint = `${siteUrl}/_api/web/lists/getById('${listId}')/items(${parentId})`;
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${spToken}`,
+      Accept: 'application/json;odata=verbose',
+      'Content-Type': 'application/json;odata=verbose',
+      'X-HTTP-Method': 'MERGE',
+      'IF-MATCH': '*',
+    },
+    body: JSON.stringify({ AdditionalTimeEntry: JSON.stringify(existingWithoutOriginal), __metadata: { type } }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`postponeEntry failed: ${res.status} ${text}`);
+  }
+
+  const taskItem = entry.TaskItem;
+  const originalMinutes = Number(originalEntry.TaskTimeInMin) || 0;
+  const delta = newMinutes - originalMinutes;
+  if (taskItem?.Id != null && taskItem?.listId && delta !== 0) {
+    await incrementTaskTotalTime(spToken, siteUrl, taskItem.listId, taskItem.Id, delta);
+  }
+}
+
+/**
+ * Split: add multiple new time entries (keep original). Each item has dateStr (DD/MM/YYYY) and minutes.
+ */
+export async function splitEntry(
+  spToken: string,
+  entry: any,
+  splitItems: { dateStr: string; minutes: number }[],
+  description: string,
+  loginUser: any
+): Promise<void> {
+  const siteUrl = entry.siteUrl;
+  const listId = entry.TimesheetListId;
+  const parentId = entry.ParentID;
+  if (!siteUrl || !listId || parentId == null) throw new Error('Entry missing siteUrl, TimesheetListId, or ParentID');
+  if (!splitItems.length) throw new Error('Add at least one split entry');
+
+  const { additionalTimeEntry, type } = await getTimesheetItem(spToken, siteUrl, listId, parentId);
+  const found = findEntry(additionalTimeEntry, entry);
+  if (!found) throw new Error('Entry not found');
+  const { val: originalEntry } = found;
+
+  const maxId = additionalTimeEntry.length > 0
+    ? Math.max(...additionalTimeEntry.map((e: any) => e?.ID ?? e?.Id ?? 0))
+    : 0;
+
+  const newEntries: any[] = [];
+  let totalNewMinutes = 0;
+  for (let i = 0; i < splitItems.length; i++) {
+    const { dateStr, minutes } = splitItems[i];
+    const hours = minutes / 60;
+    let timeHistory: any[] = [];
+    try {
+      timeHistory = originalEntry.TimeHistory ? (typeof originalEntry.TimeHistory === 'string' ? JSON.parse(originalEntry.TimeHistory) : originalEntry.TimeHistory) : [];
+    } catch {
+      timeHistory = [];
+    }
+    const maxHistoryId = timeHistory.length > 0 ? Math.max(...timeHistory.map((h: any) => h.Id || 0)) : 0;
+    timeHistory.push({
+      Id: maxHistoryId + 1,
+      TaskTimeInMin: minutes,
+      TaskTime: hours,
+      Status: 'Draft',
+      date: format(new Date(), 'dd/MM/yyyy HH:mm'),
+      AuthorName: loginUser?.Title || loginUser?.AuthorName || '',
+      AuthorId: loginUser?.AssingedToUserId ?? loginUser?.AuthorId,
+    });
+    newEntries.push({
+      ...originalEntry,
+      ID: maxId + i + 1,
+      Id: maxId + i + 1,
+      TaskDate: dateStr,
+      TaskTime: parseFloat((minutes / 60).toFixed(2)),
+      TaskTimeInMin: minutes,
+      Description: description || originalEntry.Description || '',
+      AuthorName: loginUser?.Title || loginUser?.AuthorName || originalEntry.AuthorName,
+      AuthorId: loginUser?.AssingedToUserId ?? loginUser?.AuthorId ?? originalEntry.AuthorId,
+      AuthorImage: loginUser?.Item_x0020_Cover?.Url || loginUser?.AuthorImage || originalEntry.AuthorImage || '',
+      Status: 'Draft',
+      WorkingDate: dateStr,
+      TimeHistory: JSON.stringify(timeHistory),
+    });
+    totalNewMinutes += minutes;
+  }
+
+  const updated = [...additionalTimeEntry, ...newEntries];
+  const endpoint = `${siteUrl}/_api/web/lists/getById('${listId}')/items(${parentId})`;
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${spToken}`,
+      Accept: 'application/json;odata=verbose',
+      'Content-Type': 'application/json;odata=verbose',
+      'X-HTTP-Method': 'MERGE',
+      'IF-MATCH': '*',
+    },
+    body: JSON.stringify({ AdditionalTimeEntry: JSON.stringify(updated), __metadata: { type } }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`splitEntry failed: ${res.status} ${text}`);
+  }
+
+  const taskItem = entry.TaskItem;
+  if (taskItem?.Id != null && taskItem?.listId && totalNewMinutes > 0) {
+    await incrementTaskTotalTime(spToken, siteUrl, taskItem.listId, taskItem.Id, totalNewMinutes);
+  }
+}
+
+/**
+ * Get previous status from entry's TimeHistory (same logic as desktop).
+ * Sorts history by Id descending, skips consecutive entries with currentStatus, returns first different status.
+ */
+export function getPreviousStatus(entry: any, currentStatus: string): string | null {
+  try {
+    let timeHistory: any[] = [];
+    if (entry?.TimeHistory) {
+      const raw = entry.TimeHistory;
+      timeHistory = typeof raw === 'string' ? JSON.parse(raw) : Array.isArray(raw) ? raw : [];
+    }
+    if (!Array.isArray(timeHistory) || timeHistory.length === 0) return null;
+
+    const sortedHistory = [...timeHistory].sort((a: any, b: any) => (b.Id || 0) - (a.Id || 0));
+    let skippedCurrentStatus = false;
+    for (let i = 0; i < sortedHistory.length; i++) {
+      const h = sortedHistory[i];
+      if (!h.Status) continue;
+      if (h.Status === currentStatus) {
+        skippedCurrentStatus = true;
+        continue;
+      }
+      if (skippedCurrentStatus) return h.Status;
+      if (i === 0) return h.Status;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get previous status from backend (fetch timesheet item, find entry, read TimeHistory).
+ * Use for revert so backend is source of truth.
+ */
+export async function getPreviousStatusFromBackend(
+  spToken: string,
+  entry: any,
+  currentStatus: string
+): Promise<string | null> {
+  try {
+    const siteUrl = entry.siteUrl;
+    const listId = entry.TimesheetListId;
+    const parentId = entry.ParentID;
+    if (!siteUrl || !listId || parentId == null) return null;
+
+    const { additionalTimeEntry } = await getTimesheetItem(spToken, siteUrl, listId, parentId);
+    const found = findEntry(additionalTimeEntry, entry);
+    if (!found) return null;
+    const { val } = found;
+    return getPreviousStatus(val, currentStatus);
+  } catch {
+    return null;
+  }
+}
+
+/** Fallback previous status when TimeHistory is not available (match desktop). */
 export function getFallbackPreviousStatus(
   currentStatus: string,
   panelType: string
@@ -589,7 +827,10 @@ export function getFallbackPreviousStatus(
   }
   if (currentStatus === 'Confirmed') return 'Suggestion';
   if (currentStatus === 'Approved') return 'For Approval';
-  if (currentStatus === 'For Approval') return panelType === 'For Approval' ? 'Suggestion' : 'Confirmed';
+  if (currentStatus === 'For Approval') {
+    if (panelType === 'For Approval' || panelType === 'Draft' || panelType === 'Suggestion') return 'Suggestion';
+    return 'Confirmed';
+  }
   return 'Suggestion';
 }
 

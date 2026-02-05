@@ -131,6 +131,7 @@ const TimeEntryScreen = ({ navigation }: any) => {
     const [displayUsers, setDisplayUsers] = useState<any>([]);
     const [currentUser, setCurrentUser] = useState<any>(null);
     const [taskTimeSheetsData, setTaskTimeSheetsData] = useState<any>([]);
+    const [perUserTimeSummary, setPerUserTimeSummary] = useState<Record<number, { count: number; totalHours: number }>>({});
     const [isTaskConfirmationVisible, setIsTaskConfirmationVisible] = useState(false);
     const [confirmationPanelType, setConfirmationPanelType] = useState<'Draft' | 'Suggestion' | 'Confirmed' | 'For Approval' | 'Approved'>('Suggestion');
     // Map taskUsers to UI format
@@ -190,6 +191,35 @@ const TimeEntryScreen = ({ navigation }: any) => {
                     }
                 }
             }
+            // Per-user time summary for selected date (show for all users like desktop)
+            const summary: Record<number, { count: number; totalHours: number }> = {};
+            const selectedDateZeroed = new Date(todayDate);
+            selectedDateZeroed.setHours(0, 0, 0, 0);
+            for (const item of todaysTimeEntry) {
+                let entryDetailsForSummary: any[] = [];
+                if (item?.AdditionalTimeEntry) {
+                    entryDetailsForSummary = Array.isArray(item.AdditionalTimeEntry) ? item.AdditionalTimeEntry : JSON.parse(item.AdditionalTimeEntry);
+                }
+                const entriesForDate = entryDetailsForSummary.filter((e: any) => {
+                    try {
+                        const d = formatTaskDateToDate(e.TaskDate);
+                        return d.getTime() === selectedDateZeroed.getTime();
+                    } catch {
+                        return false;
+                    }
+                });
+                const usersInThisTask = new Set<number>();
+                for (const e of entriesForDate) {
+                    const uid = e.AuthorId;
+                    if (uid == null) continue;
+                    if (!summary[uid]) summary[uid] = { count: 0, totalHours: 0 };
+                    summary[uid].totalHours += parseFloat(e.TaskTime) || 0;
+                    usersInThisTask.add(uid);
+                }
+                usersInThisTask.forEach((uid) => { summary[uid].count += 1; });
+            }
+            setPerUserTimeSummary(summary);
+
             let currentUserSeletedtodaysTimeEntry = todaysTimeEntry?.filter((item: any) => {
                 try {
                     const entries = Array.isArray(item.AdditionalTimeEntry)
@@ -337,25 +367,13 @@ const TimeEntryScreen = ({ navigation }: any) => {
         );
     };
 
-    // User Strip Item
+    // User Strip Item – show each user's time summary for selected date (like desktop)
     const renderUserItem = ({ item }: { item: any }) => {
         const isSelected = item.AssingedToUserId === selectedUserId;
         const name = item.Title?.split(' ')[0] || item.Title || 'User';
-        const userEntries = taskTimeSheetsData
-        const count = userEntries.length;
-        const totalHours = userEntries.reduce((acc: number, entry: any) => {
-            let entryHours = 0;
-            try {
-                if (entry.AdditionalTimeEntry) {
-                    const timeEntries = Array.isArray(entry.AdditionalTimeEntry) ? entry.AdditionalTimeEntry : JSON.parse(entry.AdditionalTimeEntry);
-                    entryHours = timeEntries.reduce((subAcc: number, subEntry: any) => subAcc + (parseFloat(subEntry.TaskTime) || 0), 0);
-                }
-            } catch (e) {
-                console.error("Error parsing AdditionalTimeEntry for stats:", e);
-            }
-            return acc + entryHours;
-        }, 0);
-
+        const userSummary = perUserTimeSummary[item.AssingedToUserId];
+        const count = userSummary?.count ?? 0;
+        const totalHours = userSummary?.totalHours ?? 0;
 
         return (
             <TouchableOpacity
@@ -373,7 +391,7 @@ const TimeEntryScreen = ({ navigation }: any) => {
                 <View style={styles.userInfo}>
                     <Text style={[styles.userName, isSelected && { color: 'white' }]}>{name}</Text>
                     <Text style={[styles.userStats, isSelected ? { color: '#E0E0E0' } : { color: theme.colors.primary }]}>
-                        {isSelected ? `${count} | ${totalHours.toFixed(2)}` : "0 | 0.00"}
+                        {`${count} | ${totalHours.toFixed(2)}`}
                     </Text>
                 </View>
             </TouchableOpacity>
@@ -427,16 +445,15 @@ const TimeEntryScreen = ({ navigation }: any) => {
     }, [isLeadForViewingUser, isViewingSelf]);
 
     const handleTimelineStepPress = (step: string) => {
+        setConfirmationPanelType(step as 'Draft' | 'Suggestion' | 'Confirmed' | 'For Approval' | 'Approved');
+        setIsTaskConfirmationVisible(true);
         if (!canOpenPanel(step)) {
             if (isLeadForViewingUser && !isViewingSelf) {
                 Alert.alert('Not allowed', 'As team lead you can only open Confirm WT and EOD Approved panels for team members.');
             } else {
                 Alert.alert('Not allowed', 'You can only open WT Suggested and EOD Submitted panels. Confirm and Approve are for your team lead.');
             }
-            return;
         }
-        setConfirmationPanelType(step as 'Draft' | 'Suggestion' | 'Confirmed' | 'For Approval' | 'Approved');
-        setIsTaskConfirmationVisible(true);
     };
 
     // Scroll to selected date when dates or selectedDate changes
@@ -493,7 +510,7 @@ const TimeEntryScreen = ({ navigation }: any) => {
                 {/* Task List */}
                 <View style={styles.taskListContainer}>
                     {/* Timesheet Timeline */}
-                    <View style={{ marginBottom: 10, paddingHorizontal: 5 }}>
+                    <View style={{ marginBottom: 10, paddingHorizontal: 5 }} pointerEvents="box-none">
                         <TimesheetTimeline
                             omtStatus={viewingUser?.OMTStatus}
                             selectedDay={format(selectedDate, 'dd/MM/yyyy')}
@@ -558,6 +575,7 @@ const TimeEntryScreen = ({ navigation }: any) => {
                         spToken={spToken}
                         taskTimeSheetsData={taskTimeSheetsData}
                         teamMembers={displayUsers}
+                        smartMetadata={smartMetadata}
                     />
                 )
             }

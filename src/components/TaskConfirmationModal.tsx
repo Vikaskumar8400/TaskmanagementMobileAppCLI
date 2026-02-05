@@ -22,9 +22,12 @@ import {
   updateEntryDescription,
   addEntryComment,
   getFallbackPreviousStatus,
+  getPreviousStatus,
+  getPreviousStatusFromBackend,
 } from '../Service/taskConfirmationService';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import PostponeModal from './PostponeModal';
 
 interface TaskConfirmationModalProps {
   visible: boolean;
@@ -36,6 +39,7 @@ interface TaskConfirmationModalProps {
   spToken: any;
   taskTimeSheetsData: any[];
   teamMembers: any[];
+  smartMetadata?: any[] | null;
 }
 
 const DEBOUNCE_MS = 1000;
@@ -103,30 +107,66 @@ function getStatusBadgeColor(status: string): string {
   }
 }
 
-/** Which button key is active for this entry based on status/panel (for initial state). */
+/**
+ * Which button key is active for this entry (initial state) – matches desktop initializeButtonStates.
+ * Returns typeKey only when the row should be "locked" (shouldLock), so active state persists correctly per panel.
+ */
 function getActiveButtonForEntry(entry: any, panelType: string, isLead: boolean): string | null {
   const key = `${entry?.ParentID}_${entry?.TaskID}_${entry?.ID ?? entry?.Id}`;
   const s = entry?.Status;
-  if (panelType === 'Approved') {
-    if (s === 'Approved') return `Approved_${key}`;
+  const inApprovedPanel = panelType === 'Approved';
+  const inConfirmedPanel = panelType === 'Confirmed';
+
+  if (
+    s !== 'Confirmed' && s !== 'Approved' && s !== 'Question' && s !== 'Rejected' &&
+    s !== 'Suggestion' && s !== 'Draft' && s !== 'For Approval'
+  ) {
     return null;
+  }
+
+  let activeButtonType = '';
+  if (s === 'Confirmed') {
+    if (inApprovedPanel) activeButtonType = '';
+    else activeButtonType = 'Confirmed';
+  } else if (s === 'Approved') {
+    activeButtonType = 'Approved';
+  } else if (s === 'For Approval') {
+    if (inApprovedPanel || inConfirmedPanel) activeButtonType = '';
+    else if (isLead) activeButtonType = 'For Approval';
+    else activeButtonType = panelType === 'For Approval' ? 'For Approval' : '';
+  } else if (s === 'Question') {
+    activeButtonType = 'Question';
+  } else if (s === 'Rejected') {
+    activeButtonType = 'Rejected';
+  } else if (s === 'Suggestion' || s === 'Draft') {
+    if (inApprovedPanel || inConfirmedPanel) activeButtonType = '';
+    else if (isLead) {
+      activeButtonType = panelType === 'Approved' || panelType === 'For Approval' ? 'Approved' : 'Confirmed';
+    } else {
+      activeButtonType = panelType === 'Draft' || panelType === 'Suggestion' ? 'For Approval' : '';
+    }
+  }
+
+  if (!activeButtonType) return null;
+
+  // shouldLock: when to show this button as active (desktop rule)
+  let shouldLock = false;
+  if (
+    (inApprovedPanel && s === 'Approved') ||
+    (!inApprovedPanel && (
+      s === 'For Approval' || s === 'Approved' || s === 'Question' || s === 'Rejected' ||
+      s === 'Confirmed' ||
+      ((s === 'Suggestion' || s === 'Draft') && (panelType === 'Draft' || panelType === 'Suggestion'))
+    ))
+  ) {
+    shouldLock = true;
   }
   if (panelType === 'For Approval') {
-    if (s === 'For Approval') return `For Approval_${key}`;
-    if (s === 'Question') return `Question_${key}`;
-    if (s === 'Rejected') return `Rejected_${key}`;
-    return null;
+    if (s === 'Confirmed' || s === 'Suggestion' || s === 'Draft') shouldLock = false;
   }
-  if (panelType === 'Confirmed' || panelType === 'Draft' || panelType === 'Suggestion') {
-    if (s === 'Confirmed') return `Confirmed_${key}`;
-    if (s === 'Approved') return `Approved_${key}`;
-    if (s === 'Question') return `Question_${key}`;
-    if (s === 'Rejected') return `Rejected_${key}`;
-    if (isLead && (s === 'Suggestion' || s === 'Draft')) return `Confirmed_${key}`;
-    if (!isLead && (s === 'Suggestion' || s === 'Draft')) return `For Approval_${key}`;
-    if (s === 'For Approval' && !isLead) return `For Approval_${key}`;
-  }
-  return null;
+  if (!shouldLock) return null;
+
+  return `${activeButtonType}_${key}`;
 }
 
 const TaskConfirmationModal: React.FC<TaskConfirmationModalProps> = ({
@@ -139,6 +179,7 @@ const TaskConfirmationModal: React.FC<TaskConfirmationModalProps> = ({
   spToken,
   taskTimeSheetsData,
   teamMembers,
+  smartMetadata,
 }) => {
   const { theme } = useTheme();
   const viewingUser = viewingUserProp || currentUser;
@@ -171,6 +212,7 @@ const TaskConfirmationModal: React.FC<TaskConfirmationModalProps> = ({
     index: number;
     comment: string;
   }>({ visible: false, entry: null, action: 'Question', index: -1, comment: '' });
+  const [postponeEntry, setPostponeEntry] = useState<any | null>(null);
   const questionRejectCommentRef = useRef('');
   const questionRejectPendingRef = useRef<{ entry: any; action: 'Question' | 'Rejected'; index: number } | null>(null);
   const descDebounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -197,9 +239,19 @@ const TaskConfirmationModal: React.FC<TaskConfirmationModalProps> = ({
     }
     const flat = flattenTasksToEntries(taskTimeSheetsData, dateStr, selectedUserId);
     setAllData(flat);
-    setActiveBtn([]);
-    setActiveIndex([]);
-  }, [visible, taskTimeSheetsData, dateStr, selectedUserId]);
+    // Restore active button state from each entry's persisted status (so it survives refresh)
+    const initialActiveBtn: string[] = [];
+    const initialActiveIndex: number[] = [];
+    flat.forEach((entry: any, index: number) => {
+      const typeKey = getActiveButtonForEntry(entry, panelType, isLead);
+      if (typeKey) {
+        initialActiveBtn.push(typeKey);
+        initialActiveIndex.push(index);
+      }
+    });
+    setActiveBtn(initialActiveBtn);
+    setActiveIndex(initialActiveIndex);
+  }, [visible, taskTimeSheetsData, dateStr, selectedUserId, panelType, isLead]);
 
   const handlePrevDay = () => setCurrentDate((d) => addDays(d, -1));
   const handleNextDay = () => setCurrentDate((d) => addDays(d, 1));
@@ -276,15 +328,17 @@ const TaskConfirmationModal: React.FC<TaskConfirmationModalProps> = ({
   const handleStatusPress = useCallback(
     async (entry: any, newStatus: string, index: number) => {
       const key = entryKey(entry);
-      // Web behavior: clicking same status = revert (clear row active, then API)
+      // Revert: same status clicked – get previous from TimeHistory (backend first), then fallback
       if (entry.Status === newStatus) {
-        const prev = getFallbackPreviousStatus(entry.Status, panelType);
         clearRowActive(entry, index);
         setSavingId(key);
         try {
-          await updateEntryStatus(spToken, entry, prev, currentUser);
+          let previousStatus = await getPreviousStatusFromBackend(spToken, entry, entry.Status);
+          if (!previousStatus) previousStatus = getPreviousStatus(entry, entry.Status);
+          if (!previousStatus) previousStatus = getFallbackPreviousStatus(entry.Status, panelType);
+          await updateEntryStatus(spToken, entry, previousStatus, currentUser);
           setAllData((prevData) =>
-            prevData.map((e) => (entryKey(e) === key ? { ...e, Status: prev } : e))
+            prevData.map((e) => (entryKey(e) === key ? { ...e, Status: previousStatus } : e))
           );
         } catch (err: any) {
           Alert.alert('Error', err?.message || 'Failed to revert');
@@ -315,13 +369,16 @@ const TaskConfirmationModal: React.FC<TaskConfirmationModalProps> = ({
       const key = entryKey(entry);
       const currentStatusEntry = entry.Status;
       if (currentStatusEntry === 'For Approval') {
-        const prev = getFallbackPreviousStatus('For Approval', panelType);
+        // Revert Submit: get previous from TimeHistory (backend first), then fallback
         clearRowActive(entry, index);
         setSavingId(key);
         try {
-          await updateEntryStatus(spToken, entry, prev, currentUser);
+          let previousStatus = await getPreviousStatusFromBackend(spToken, entry, 'For Approval');
+          if (!previousStatus) previousStatus = getPreviousStatus(entry, 'For Approval');
+          if (!previousStatus) previousStatus = getFallbackPreviousStatus('For Approval', panelType);
+          await updateEntryStatus(spToken, entry, previousStatus, currentUser);
           setAllData((prevData) =>
-            prevData.map((e) => (entryKey(e) === key ? { ...e, Status: prev } : e))
+            prevData.map((e) => (entryKey(e) === key ? { ...e, Status: previousStatus } : e))
           );
         } catch (err: any) {
           Alert.alert('Error', err?.message || 'Failed to revert');
@@ -945,7 +1002,7 @@ const TaskConfirmationModal: React.FC<TaskConfirmationModalProps> = ({
         <TouchableOpacity
           key="Forward"
           style={[styles.actionBtn, { backgroundColor: forwardStyle.bg, opacity: forwardStyle.opacity }]}
-          onPress={() => Alert.alert('Postpone', 'Postpone to another date – coming soon.')}
+          onPress={() => setPostponeEntry(entry)}
         >
           <Ionicons name="arrow-forward" size={18} color={forwardStyle.iconColor} />
         </TouchableOpacity>
@@ -976,7 +1033,7 @@ const TaskConfirmationModal: React.FC<TaskConfirmationModalProps> = ({
         <TouchableOpacity
           key="Forward"
           style={[styles.actionBtn, { backgroundColor: '#E3F2FD', opacity: 1 }]}
-          onPress={() => Alert.alert('Postpone', 'Postpone to another date – coming soon.')}
+          onPress={() => setPostponeEntry(entry)}
         >
           <Ionicons name="arrow-forward" size={18} color="#1565C0" />
         </TouchableOpacity>
@@ -1301,6 +1358,17 @@ const TaskConfirmationModal: React.FC<TaskConfirmationModalProps> = ({
             </View>
           </View>
         </Modal>
+
+        {/* Postpone / Split modal (desktop postpone2 equivalent) */}
+        <PostponeModal
+          visible={!!postponeEntry}
+          onClose={() => setPostponeEntry(null)}
+          onSaved={() => onClose(true)}
+          entry={postponeEntry}
+          currentUser={currentUser}
+          spToken={spToken}
+          smartMetadata={smartMetadata}
+        />
       </SafeAreaView>
     </Modal>
   );

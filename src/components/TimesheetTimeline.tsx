@@ -75,52 +75,54 @@ const TimesheetTimeline: React.FC<TimesheetTimelineProps> = ({ currentStatus, om
         return { stepStates: states, lastCompletedIndex: idx };
     }, [omtStatus, selectedDay, currentStatus]);
 
-    // Web progress width formula:
-    // return (0 - (-lastCompletedIndex) / timeline.length) * 100;
-    const progressWidthPercent = useMemo(() => {
-        const timelineLength = stepStates.length;
-        const totalSteps = timelineLength - 1;
-        const minWidthPercent = 0;
-        if (totalSteps <= 0) return 100;
-        if (lastCompletedIndex < 0) return minWidthPercent;
-        return (0 - (-lastCompletedIndex) / timelineLength) * 100;
-    }, [stepStates.length, lastCompletedIndex]);
-
     return (
         <View style={styles.container}>
-            <View style={styles.lineBackground}>
-                <View style={[styles.lineProgress, { width: `${progressWidthPercent}%`, backgroundColor: theme.colors.primary }]} />
-            </View>
-
             <View style={styles.stepsContainer}>
                 {stepStates.map((step, index) => {
                     const isCompleted = String(step.status).toLowerCase() === 'completed';
                     const isCurrent = index === lastCompletedIndex;
                     const isDisabled = disabledSteps.includes(step.key);
+                    const isSegmentFilled = index > 0 && lastCompletedIndex >= index;
 
                     return (
-                        <View key={step.key} style={styles.stepWrapper}>
-                            <TouchableOpacity
-                                onPress={() => !isDisabled && onStepPress(step.key)}
-                                disabled={isDisabled}
-                                style={[
-                                    styles.circle,
-                                    {
-                                        backgroundColor: isDisabled ? '#E0E0E0' : (isCompleted ? theme.colors.primary : '#E0E0E0'),
-                                        borderColor: isDisabled ? '#BDBDBD' : (isCompleted ? theme.colors.primary : '#BDBDBD'),
-                                        opacity: isDisabled ? 0.6 : 1,
-                                    },
-                                    isCurrent && !isDisabled && styles.currentCircle
-                                ]}
-                            >
-                                {isCompleted && !isDisabled && (
-                                    <View style={styles.innerCircle} />
-                                )}
-                            </TouchableOpacity>
-                            <Text style={[styles.label, { color: isDisabled ? theme.colors.textSecondary : (isCompleted ? theme.colors.text : theme.colors.textSecondary) }]}>
-                                {step.label}
-                            </Text>
-                        </View>
+                        <React.Fragment key={step.key}>
+                            {/* Line segment to the left of this step (between previous circle and this one) */}
+                            {index > 0 && (
+                                <View style={styles.segmentWrapper}>
+                                    <View style={[styles.segmentBackground]} />
+                                    <View
+                                        style={[
+                                            styles.segmentProgress,
+                                            { backgroundColor: isSegmentFilled ? theme.colors.primary : '#E0E0E0' },
+                                        ]}
+                                    />
+                                </View>
+                            )}
+                            <View style={styles.stepWrapper}>
+                                <TouchableOpacity
+                                    onPress={() => !isDisabled && onStepPress(step.key)}
+                                    disabled={isDisabled}
+                                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                                    activeOpacity={0.7}
+                                    style={[
+                                        styles.circle,
+                                        {
+                                            backgroundColor: isDisabled ? '#E0E0E0' : (isCompleted ? theme.colors.primary : '#E0E0E0'),
+                                            borderColor: isDisabled ? '#BDBDBD' : (isCompleted ? theme.colors.primary : '#BDBDBD'),
+                                            opacity: isDisabled ? 0.6 : 1,
+                                        },
+                                        isCurrent && !isDisabled && styles.currentCircle
+                                    ]}
+                                >
+                                    {isCompleted && !isDisabled && (
+                                        <View style={styles.innerCircle} />
+                                    )}
+                                </TouchableOpacity>
+                                <Text style={[styles.label, { color: isDisabled ? theme.colors.textSecondary : (isCompleted ? theme.colors.text : theme.colors.textSecondary) }]}>
+                                    {step.label}
+                                </Text>
+                            </View>
+                        </React.Fragment>
                     );
                 })}
             </View>
@@ -131,30 +133,41 @@ const TimesheetTimeline: React.FC<TimesheetTimelineProps> = ({ currentStatus, om
 const styles = StyleSheet.create({
     container: {
         paddingVertical: 15,
-        paddingHorizontal: 20,
+        paddingHorizontal: 12,
         backgroundColor: 'transparent',
-    },
-    lineBackground: {
-        position: 'absolute',
-        top: 24, // Vertically center with circles (approx)
-        left: 40,
-        right: 40,
-        height: 2,
-        backgroundColor: '#E0E0E0',
-        zIndex: -1,
-    },
-    lineProgress: {
-        height: '100%',
-        backgroundColor: '#2e5596',
     },
     stepsContainer: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
         alignItems: 'flex-start',
+    },
+    segmentWrapper: {
+        flex: 1,
+        minWidth: 6,
+        justifyContent: 'center',
+        height: 20,
+        marginBottom: 5,
+        // Extend line into circle area so it meets circle edges (circle is 20px, wrapper 72px → 26px gap each side)
+        marginLeft: -26,
+        marginRight: -26,
+    },
+    segmentBackground: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        top: 9,
+        height: 2,
+        backgroundColor: '#E0E0E0',
+    },
+    segmentProgress: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        top: 9,
+        height: 2,
     },
     stepWrapper: {
         alignItems: 'center',
-        width: 80,
+        width: 72,
     },
     circle: {
         width: 20,
