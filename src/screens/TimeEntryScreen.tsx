@@ -386,6 +386,7 @@ const TimeEntryScreen = ({ navigation }: any) => {
                 <UserAvatar
                     user={item}
                     spToken={spToken}
+                    size={36}
                     containerStyle={styles.avatar}
                 />
                 <View style={styles.userInfo}>
@@ -629,9 +630,9 @@ const styles = StyleSheet.create({
         marginTop: 2,
     },
 
-    // User Strip Styles
+    // User Strip Styles (match desktop: prominent avatars, ~same visual weight as date cards)
     userStripContainer: {
-        height: 50,
+        height: 56,
         marginBottom: 10,
     },
     userItem: {
@@ -639,29 +640,29 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         backgroundColor: '#F5F5F5',
         borderRadius: 20,
-        paddingHorizontal: 8,
-        paddingVertical: 5,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
         marginRight: 10,
         borderWidth: 1,
         borderColor: '#E0E0E0',
     },
     avatar: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        marginRight: 6,
-        borderWidth: 0, // Override default border
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        marginRight: 8,
+        borderWidth: 0,
     },
     userInfo: {
         justifyContent: 'center',
     },
     userName: {
-        fontSize: 10, // Small text like in screenshot
+        fontSize: 12,
         fontWeight: 'bold',
         color: '#000',
     },
     userStats: {
-        fontSize: 10,
+        fontSize: 11,
         fontWeight: 'bold',
     },
 
