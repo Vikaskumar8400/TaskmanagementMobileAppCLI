@@ -18,7 +18,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { Calendar } from 'react-native-calendars';
 import { addDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, format } from 'date-fns';
 import { fetchImageAsBase64 } from '../Service/service';
-import { getPortfolioProjectMasterData, createTaskREST } from '../Service/createTaskService';
+import { getPortfolioProjectMasterData, createTaskREST, type PortfolioSource } from '../Service/createTaskService';
 
 const CreateTaskScreen = ({ navigation }: any) => {
     const { theme } = useTheme();
@@ -74,6 +74,8 @@ const CreateTaskScreen = ({ navigation }: any) => {
     const [portfolioProjectMasterData, setPortfolioProjectMasterData] = useState<any[]>([]);
     const [portfolioProjectLoading, setPortfolioProjectLoading] = useState(true);
     const [portfolioProjectError, setPortfolioProjectError] = useState<string | null>(null);
+    // Source used for portfolio list – compare with desktop (SelectedProp.siteUrl + SelectedProp.MasterTaskListID); IDs match only when same
+    const [portfolioSource, setPortfolioSource] = useState<PortfolioSource>(null);
     const loadPortfolioProjectData = React.useCallback(() => {
         if (!spToken) {
             setPortfolioProjectLoading(false);
@@ -82,8 +84,15 @@ const CreateTaskScreen = ({ navigation }: any) => {
         }
         setPortfolioProjectError(null);
         setPortfolioProjectLoading(true);
-        // Pass masterSite first (same as desktop ServiceComponentPortfolioPopup: Dynamic.siteUrl + Dynamic.MasterTaskListID)
-        getPortfolioProjectMasterData(spToken, masterSite ?? sites)
+        // Pass masterSite first so we use same site/list as desktop when metadata has Master Tasks with same siteUrl + listId as desktop SelectedProp
+        getPortfolioProjectMasterData(spToken, masterSite ?? sites, {
+            onSourceUsed: (source) => {
+                setPortfolioSource(source);
+                if (__DEV__ && source) {
+                    console.log('Portfolio list source (compare with desktop SelectedProp.siteUrl + MasterTaskListID):', source);
+                }
+            },
+        })
             .then((items) => {
                 setPortfolioProjectMasterData(Array.isArray(items) ? items : []);
                 setPortfolioProjectError(null);
@@ -98,15 +107,20 @@ const CreateTaskScreen = ({ navigation }: any) => {
         loadPortfolioProjectData();
     }, [loadPortfolioProjectData]);
 
+    // Same as desktop "Select Portfolio" popup: Components + SubComponents + Features (all selectable portfolio items)
     const portfolioOptions = useMemo(() => {
+        const type = (item: any) => String(item.Item_x0020_Type ?? item.Item_Type ?? '').toLowerCase();
         return portfolioProjectMasterData
-            .filter((item: any) => (item.Item_x0020_Type || item.Item_Type) === 'Component')
-            .sort((a: any, b: any) => (a.PortfolioStructureID || '').localeCompare(b.PortfolioStructureID || '', undefined, { sensitivity: 'base' }));
+            .filter(
+                (item: any) =>
+                    type(item) === 'component' || type(item) === 'subcomponent' || type(item) === 'feature'
+            )
+            .sort((a: any, b: any) => String(a.PortfolioStructureID ?? '').localeCompare(String(b.PortfolioStructureID ?? ''), undefined, { sensitivity: 'base' }));
     }, [portfolioProjectMasterData]);
     const projectOptions = useMemo(() => {
         return portfolioProjectMasterData
             .filter((item: any) => (item.Item_x0020_Type || item.Item_Type) === 'Project' || (item.Item_x0020_Type || item.Item_Type) === 'Sprint' || (item.Item_x0020_Type || item.Item_Type) === 'Cycle')
-            .sort((a: any, b: any) => (a.PortfolioStructureID || '').localeCompare(b.PortfolioStructureID || '', undefined, { sensitivity: 'base' }));
+            .sort((a: any, b: any) => String(a.PortfolioStructureID ?? '').localeCompare(String(b.PortfolioStructureID ?? ''), undefined, { sensitivity: 'base' }));
     }, [portfolioProjectMasterData]);
     const [portfolioModalVisible, setPortfolioModalVisible] = useState(false);
     const [portfolioSearch, setPortfolioSearch] = useState('');
@@ -119,8 +133,8 @@ const CreateTaskScreen = ({ navigation }: any) => {
         const q = portfolioSearch.toLowerCase();
         return portfolioOptions.filter(
             (c: any) =>
-                (c.Title || '').toLowerCase().includes(q) ||
-                (c.PortfolioStructureID || '').toLowerCase().includes(q)
+                String(c.Title ?? '').toLowerCase().includes(q) ||
+                String(c.PortfolioStructureID ?? '').toLowerCase().includes(q)
         );
     }, [portfolioOptions, portfolioSearch]);
     const suggestedProjectsForPortfolio = useMemo(() => {
@@ -132,6 +146,7 @@ const CreateTaskScreen = ({ navigation }: any) => {
         };
         return projectOptions.filter(list);
     }, [selectedPortfolio, projectOptions]);
+    // Auto-select project when portfolio changes (same as desktop: masterTaggedProject first, then suggested by Portfolios)
     useEffect(() => {
         if (!selectedPortfolio) {
             setSelectedProject(null);
@@ -140,19 +155,19 @@ const CreateTaskScreen = ({ navigation }: any) => {
         const suggested = suggestedProjectsForPortfolio;
         const fromTag = selectedPortfolio.masterTaggedProject?.results?.[0]?.ProjectDetail ?? selectedPortfolio.masterTaggedProject?.[0]?.ProjectDetail;
         if (fromTag) {
-            const match = projectOptions.find((p: any) => p.Id === fromTag.Id);
+            const match = projectOptions.find((p: any) => p.Id === fromTag.Id || p.Id === fromTag.ID);
             setSelectedProject(match || fromTag);
         } else if (suggested.length > 0) {
             setSelectedProject(suggested[0]);
         } else {
             setSelectedProject(null);
         }
-    }, [selectedPortfolio?.Id, suggestedProjectsForPortfolio.length, projectOptions.length]);
+    }, [selectedPortfolio, suggestedProjectsForPortfolio, projectOptions]);
     const projectListForModal = useMemo(() => {
         const list = suggestedProjectsForPortfolio.length > 0 ? suggestedProjectsForPortfolio : projectOptions;
         if (!projectSearch.trim()) return list;
         const q = projectSearch.toLowerCase();
-        return list.filter((p: any) => (p.Title || '').toLowerCase().includes(q) || (p.PortfolioStructureID || '').toLowerCase().includes(q));
+        return list.filter((p: any) => String(p.Title ?? '').toLowerCase().includes(q) || String(p.PortfolioStructureID ?? '').toLowerCase().includes(q));
     }, [suggestedProjectsForPortfolio, projectOptions, projectSearch]);
 
     // Websites (Sites)
@@ -376,10 +391,15 @@ const CreateTaskScreen = ({ navigation }: any) => {
                             style={[styles.dropdown, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
                         >
                             <Text style={[styles.dropdownText, { color: selectedPortfolio ? theme.colors.text : theme.colors.placeholder }]}>
-                                {selectedPortfolio ? `${selectedPortfolio.PortfolioStructureID || ''} ${selectedPortfolio.Title || ''}`.trim() || selectedPortfolio.Title : 'Select portfolio'}
+                                {selectedPortfolio ? `${String(selectedPortfolio.PortfolioStructureID ?? '')} ${String(selectedPortfolio.Title ?? '')}`.trim() || String(selectedPortfolio.Title ?? '') : 'Select portfolio'}
                             </Text>
                             <Ionicons name="chevron-down" size={20} color={theme.colors.textSecondary} />
                         </TouchableOpacity>
+                    )}
+                    {__DEV__ && portfolioSource && (
+                        <Text style={{ fontSize: 10, color: theme.colors.textSecondary, marginTop: 4 }} numberOfLines={1}>
+                            List source: {portfolioSource.siteUrl} | listId: {portfolioSource.listId}
+                        </Text>
                     )}
                 </View>
 
@@ -391,7 +411,7 @@ const CreateTaskScreen = ({ navigation }: any) => {
                         style={[styles.dropdown, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
                     >
                         <Text style={[styles.dropdownText, { color: selectedProject ? theme.colors.text : theme.colors.placeholder }]}>
-                            {selectedProject ? `${selectedProject.PortfolioStructureID || ''} ${selectedProject.Title || ''}`.trim() || selectedProject.Title : 'Select project'}
+                            {selectedProject ? `${String(selectedProject.PortfolioStructureID ?? '')} ${String(selectedProject.Title ?? '')}`.trim() || String(selectedProject.Title ?? '') : 'Select project'}
                         </Text>
                         <Ionicons name="chevron-down" size={20} color={theme.colors.textSecondary} />
                     </TouchableOpacity>
@@ -569,7 +589,7 @@ const CreateTaskScreen = ({ navigation }: any) => {
                                             }}
                                         >
                                             <Text style={[styles.modalItemText, { color: theme.colors.text }]}>
-                                                {[item.PortfolioStructureID, item.Title].filter(Boolean).join(' - ')}
+                                                {[item.PortfolioStructureID, item.Title].map((x) => (x != null && x !== '' ? String(x) : null)).filter(Boolean).join(' - ')}
                                             </Text>
                                         </TouchableOpacity>
                                     )}
@@ -577,7 +597,14 @@ const CreateTaskScreen = ({ navigation }: any) => {
                                     ListEmptyComponent={
                                         !portfolioProjectLoading ? (
                                             <View style={styles.emptyList}>
-                                                <Text style={[styles.emptyListText, { color: theme.colors.textSecondary }]}>No portfolios found</Text>
+                                                <Text style={[styles.emptyListText, { color: theme.colors.textSecondary }]}>
+                                                    {filteredPortfolioOptions.length === 0 && portfolioProjectMasterData.length === 0
+                                                        ? 'No portfolios loaded. Check connection and retry.'
+                                                        : 'No portfolios found'}
+                                                </Text>
+                                                <TouchableOpacity onPress={loadPortfolioProjectData} style={styles.retryBtn}>
+                                                    <Text style={[styles.retryBtnText, { color: theme.colors.primary }]}>Retry</Text>
+                                                </TouchableOpacity>
                                             </View>
                                         ) : null
                                     }
@@ -619,7 +646,7 @@ const CreateTaskScreen = ({ navigation }: any) => {
                                     }}
                                 >
                                     <Text style={[styles.modalItemText, { color: theme.colors.text }]}>
-                                        {[item.PortfolioStructureID, item.Title].filter(Boolean).join(' - ')}
+                                        {[item.PortfolioStructureID, item.Title].map((x) => (x != null && x !== '' ? String(x) : null)).filter(Boolean).join(' - ')}
                                     </Text>
                                 </TouchableOpacity>
                             )}

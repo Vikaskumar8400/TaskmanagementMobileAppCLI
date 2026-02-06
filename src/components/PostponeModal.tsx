@@ -10,7 +10,6 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
-  Dimensions,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { format, addDays, isSameDay, startOfWeek, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
@@ -264,17 +263,15 @@ const PostponeModal: React.FC<PostponeModalProps> = ({
 
   if (!visible) return null;
 
-  const { height: winHeight } = Dimensions.get('window');
-
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity
         activeOpacity={1}
         style={styles.overlay}
         onPress={onClose}
       >
         <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={styles.modalCardWrapper}>
-          <View style={[styles.modalCard, { backgroundColor: theme.colors.background, maxHeight: winHeight * 0.92 }]}>
+          <View style={[styles.modalCard, { backgroundColor: theme.colors.background }]}>
             {/* Header */}
             <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
               <TouchableOpacity onPress={onClose} style={styles.headerBtn}>
@@ -605,21 +602,20 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 12,
+    justifyContent: 'flex-end',
   },
   modalCardWrapper: {
     width: '100%',
-    maxWidth: 480,
-    borderRadius: 12,
     overflow: 'hidden',
     ...(Platform.OS === 'android' ? { elevation: 8, shadowColor: '#000' } : {}),
   },
   modalCard: {
-    borderRadius: 12,
-    overflow: 'hidden',
     width: '100%',
+    maxHeight: '90%',
+    height: '90%',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',
