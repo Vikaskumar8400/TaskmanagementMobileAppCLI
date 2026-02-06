@@ -228,7 +228,8 @@ export const getAllTaskByFilter = async (spToken: any, filter: any, optimizedSit
                 + `,TaskCategories/Id,TaskCategories/Title`
                 + `,ResponsibleTeam/Id,ResponsibleTeam/Title`
                 + `,TeamMembers/Id,TeamMembers/Title`
-                + `&$expand=Project,ParentTask,TaskType,Portfolio,TaskCategories,ResponsibleTeam,TeamMembers`
+                + `,AssignedTo/Id,AssignedTo/Title,AssignedTo/Name,AssignedTo/EMail`
+                + `&$expand=Project,ParentTask,TaskType,Portfolio,TaskCategories,ResponsibleTeam,TeamMembers,AssignedTo`
                 + `&$top=4999`;
 
             let filterQuery = "";
@@ -274,7 +275,7 @@ export const getAllTaskByFilter = async (spToken: any, filter: any, optimizedSit
                         item.siteType = site.Title;
                         item.listId = site.listId;
                         item.siteUrl = site.siteUrl;
-                        item["SiteIcon"] = site?.Item_x005F_x0020_Cover?.Url
+                        item["SiteIcon"] = site?.Item_x005F_x0020_Cover?.Url;
                         item.PercentComplete = (item?.PercentComplete * 100).toFixed(0);
                         item["TaskID"] = GetTaskId(item);
                         return item;
@@ -362,7 +363,8 @@ export const taskFilterBasedOnTimeSheets = async (
                 `,TaskType/Title,TaskType/Level` +
                 `,Project/Id,Project/Title,Project/PortfolioStructureID` +
                 `,TaskCategories/Id,TaskCategories/Title` +
-                `&$expand=Project,ParentTask,TaskType,TaskCategories`;
+                `,AssignedTo/Id,AssignedTo/Title,AssignedTo/Name,AssignedTo/EMail` +
+                `&$expand=Project,ParentTask,TaskType,TaskCategories,AssignedTo`;
 
             const requestPromise = fetch(endpoint, {
                 method: "GET",
@@ -400,6 +402,48 @@ export const taskFilterBasedOnTimeSheets = async (
     } catch (err) {
         console.error("getTaskBasedOnTime error:", err);
         return [];
+    }
+};
+
+
+// --- Basic Task Info Update (Title, PriorityRank etc.) ---
+
+export const updateTaskBasicInfo = async (
+    spToken: string,
+    params: { siteUrl: string; listId: string; taskId: number; title?: string; priorityRank?: number | null }
+) => {
+    const { siteUrl, listId, taskId, title, priorityRank } = params;
+    try {
+        const endpoint = `${siteUrl}/_api/web/lists(guid'${listId}')/items(${taskId})`;
+        const getResp = await fetch(`${endpoint}?$select=Id,__metadata,Title,PriorityRank`, {
+            headers: { "Authorization": `Bearer ${spToken}`, "Accept": "application/json;odata=verbose" }
+        });
+        if (!getResp.ok) return;
+        const json = await getResp.json();
+        const type = json.d.__metadata.type;
+
+        const body: any = { __metadata: { type } };
+        if (typeof title === 'string') {
+            body.Title = title;
+        }
+        if (priorityRank !== undefined) {
+            body.PriorityRank = priorityRank;
+        }
+
+        await fetch(endpoint, {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${spToken}`,
+                "Accept": "application/json;odata=verbose",
+                "Content-Type": "application/json;odata=verbose",
+                "X-HTTP-Method": "MERGE",
+                "IF-MATCH": "*"
+            },
+            body: JSON.stringify(body)
+        });
+    } catch (e) {
+        console.error("updateTaskBasicInfo error", e);
+        throw e;
     }
 };
 

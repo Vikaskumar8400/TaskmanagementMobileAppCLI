@@ -22,6 +22,7 @@ import { useAuth } from '../context/AuthContext';
 import { calculateSmartPriority, fetchImageAsBase64, getAllTaskByFilter } from '../Service/service';
 import UserAvatar from '../components/UserAvatar';
 import TimeEntryModal from '../components/TimeEntryModal';
+import EditTaskModal from '../components/EditTaskModal';
 
 const getBorderColor = (priority: any, percentComplete: any) => {
     if (priority === 'Critical') return '#D93025';
@@ -30,7 +31,7 @@ const getBorderColor = (priority: any, percentComplete: any) => {
     return '#4285F4';
 };
 
-const TaskCard = React.memo(({ item, index, spToken, onWTClick }: any) => {
+const TaskCard = React.memo(({ item, index, spToken, onWTClick, onEditTask }: any) => {
     const [imageSource, setImageSource] = useState<any>(null);
 
     useEffect(() => {
@@ -91,11 +92,11 @@ const TaskCard = React.memo(({ item, index, spToken, onWTClick }: any) => {
                         <Text style={styles.wtText}>WT</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                        onPress={() => { console.log('Dock:', item.Id); /* Handle dock */ }}
+                        onPress={() => onEditTask(item)}
                         activeOpacity={0.7}
                         style={{ marginLeft: 8 }}
                     >
-                        <MaterialCommunityIcons name="dock-window" size={20} color="#5F6368" />
+                        <MaterialCommunityIcons name="pencil-outline" size={20} color="#5F6368" />
                     </TouchableOpacity>
                 </View>
             </View>
@@ -151,6 +152,8 @@ const TaskDetailsScreen = () => {
     const [isTimeEntryVisible, setIsTimeEntryVisible] = useState(false);
     const [timeEntryTask, setTimeEntryTask] = useState<any>(null);
     const [timeEntryImage, setTimeEntryImage] = useState<any>(null);
+    const [editTask, setEditTask] = useState<any | null>(null);
+    const [isEditVisible, setIsEditVisible] = useState(false);
     const flatListRef = useRef(null);
 
     const fetchTasks = useCallback(async (filter: any, selectedUsersList: any[] | null) => {
@@ -208,6 +211,11 @@ const TaskDetailsScreen = () => {
         setTimeEntryTask(item);
         setTimeEntryImage(imgSource);
         setIsTimeEntryVisible(true);
+    }, []);
+
+    const onEditTask = useCallback((item: any) => {
+        setEditTask(item);
+        setIsEditVisible(true);
     }, []);
 
     const onTimeEntryClose = useCallback(() => {
@@ -370,7 +378,19 @@ const TaskDetailsScreen = () => {
                 ) : error ? (
                     <ErrorMessage />
                 ) : (
-                    <FlatList ref={flatListRef} data={filteredTasks} renderItem={({ item, index }) => <TaskCard item={item} index={index} spToken={spToken} onWTClick={onWTClick} />} keyExtractor={(item) => `${item.listId}-${item.Id}` || `task-${Date.now()}-${Math.random()}`}
+                    <FlatList
+                        ref={flatListRef}
+                        data={filteredTasks}
+                        renderItem={({ item, index }) => (
+                            <TaskCard
+                                item={item}
+                                index={index}
+                                spToken={spToken}
+                                onWTClick={onWTClick}
+                                onEditTask={onEditTask}
+                            />
+                        )}
+                        keyExtractor={(item) => `${item.listId}-${item.Id}` || `task-${Date.now()}-${Math.random()}`}
                         contentContainerStyle={styles.listContent}
                         showsVerticalScrollIndicator={false}
                         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#1A73E8']} tintColor="#1A73E8" />}
@@ -394,6 +414,20 @@ const TaskDetailsScreen = () => {
                     teamMembers={TeamMemberForFilter}
                     spToken={spToken}
                     taskImageSource={timeEntryImage}
+                />
+            )}
+            {editTask && (
+                <EditTaskModal
+                    visible={isEditVisible}
+                    onClose={(updated) => {
+                        setIsEditVisible(false);
+                        setEditTask(null);
+                        if (updated) {
+                            onRefresh();
+                        }
+                    }}
+                    task={editTask}
+                    spToken={spToken}
                 />
             )}
         </SafeAreaView>
