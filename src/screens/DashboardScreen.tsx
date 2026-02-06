@@ -143,7 +143,7 @@ const DashboardScreen = ({ navigation }: any) => {
         // console.log("Action Pressed:", action);
         switch (action) {
             case 'New Task':
-                showSnackbar("Coming Soon");
+                navigation.navigate('CreateTask');
                 break;
             case 'Log Time':
                 // Navigate to MainTabs > Tasks

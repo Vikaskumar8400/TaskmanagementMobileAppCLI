@@ -192,6 +192,44 @@ export const getSmartMetaREST = async (spToken: any) => {
         console.error("Error fetching Smart Metadata:", err);
     }
 };
+
+/** Shared: authorized GET for SharePoint REST (odata=verbose). Reused by createTaskService. */
+export const spRestGet = async (spToken: string, url: string): Promise<any> => {
+    const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+            Authorization: `Bearer ${spToken}`,
+            Accept: 'application/json;odata=verbose',
+        },
+    });
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`${res.status}: ${text.slice(0, 200)}`);
+    }
+    return res.json();
+};
+
+/** Shared: authorized POST for SharePoint REST (odata=verbose). Reused by createTaskService. */
+export const spRestPost = async (spToken: string, url: string, body: any): Promise<any> => {
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${spToken}`,
+            Accept: 'application/json;odata=verbose',
+            'Content-Type': 'application/json;odata=verbose',
+        },
+        body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`${res.status}: ${text.slice(0, 200)}`);
+    }
+    return res.json();
+};
+
+export { getPortfolioProjectMasterData, createTaskREST } from './createTaskService';
+export type { CreateTaskPayload, CreateTaskSite } from './createTaskService';
+
 export const GetTaskId = (Item: any) => {
     const { TaskID, ParentTask, Id, TaskType } = Item;
     let taskIds = "";
