@@ -18,7 +18,7 @@ import LeaveCalendarScreen from '../screens/LeaveCalendarScreen';
 import CreateTaskScreen from '../screens/CreateTaskScreen';
 
 export type RootStackParamList = {
-    Splash: { autoNavigate?: boolean } | undefined;
+    Splash: undefined;
     Welcome: undefined;
     Login: undefined;
     MainTabs: undefined;
@@ -78,11 +78,7 @@ const AppNavigator = () => {
         return (
             <NavigationContainer>
                 <Stack.Navigator screenOptions={{ headerShown: false }}>
-                    <Stack.Screen
-                        name="Splash"
-                        component={SplashScreen}
-                        initialParams={{ autoNavigate: false }}
-                    />
+                    <Stack.Screen name="Splash" component={SplashScreen} />
                 </Stack.Navigator>
             </NavigationContainer>
         );

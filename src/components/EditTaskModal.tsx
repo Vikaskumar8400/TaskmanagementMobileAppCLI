@@ -425,9 +425,7 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({ visible, onClose, task, s
 
                     let userToDisplay = null;
                     if (task?.AssignedTo) {
-                      if (task.AssignedTo.results && Array.isArray(task.AssignedTo.results) && task.AssignedTo.results.length > 0) {
-                        userToDisplay = task.AssignedTo.results[0];
-                      } else if (Array.isArray(task.AssignedTo) && task.AssignedTo.length > 0) {
+                      if (Array.isArray(task.AssignedTo) && task.AssignedTo.length > 0) {
                         userToDisplay = task.AssignedTo[0];
                       } else if (!Array.isArray(task.AssignedTo)) {
                         userToDisplay = task.AssignedTo;

@@ -12,8 +12,8 @@ const config = {
   scopes: AuthConfig.appScopes.join(' '),
   serviceConfiguration: {
     authorizationEndpoint:
-      `https://login.microsoftonline.com/${AuthConfig.tenantId}/oauth2/v2.0/authorize`,
-    tokenEndpoint: `https://login.microsoftonline.com/${AuthConfig.tenantId}/oauth2/v2.0/token`,
+      'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+    tokenEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
   },
 };
 
